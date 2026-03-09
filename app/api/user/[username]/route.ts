@@ -7,9 +7,11 @@ interface Params {
   };
 }
 
-export async function GET(req: Request, { params }: Params) {
-  // Đợi params nếu bạn dùng Next.js phiên bản mới (15+)
-  const { username } = await params; 
+export async function GET(
+  req: Request, 
+  { params }: { params: Promise<{ username: string }> } // Khai báo params là Promise
+) {
+  const { username } = await params;
 
   const user = {
     username: username,
