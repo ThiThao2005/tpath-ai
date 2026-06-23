@@ -2,13 +2,23 @@
 
 import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
-import { LayoutDashboard, Plus, ExternalLink, BrainCircuit, Code2, Server } from "lucide-react" // Cần cài: npm install lucide-react
+import {
+  LayoutDashboard, Plus, ExternalLink, BrainCircuit,
+  Code2, Server, Bot, Layers, Trash2, Pencil, Check,
+  RefreshCw, Save, Calendar
+} from "lucide-react"
+import toast, { Toaster } from "react-hot-toast"
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+type Tag = "fe" | "be" | "ai" | "fs"
 
 type Project = {
   id: string
   title: string
   description: string
   link: string
+  tag?: Tag
 }
 
 type Quiz = {
@@ -17,187 +27,412 @@ type Quiz = {
   ai: number
 }
 
-export default function Dashboard() {
-  const [projects, setProjects] = useState<Project[]>([])
-  const [quiz, setQuiz] = useState<Quiz | null>(null)
-  const [loading, setLoading] = useState(true)
+// ─── Constants ────────────────────────────────────────────────────────────────
 
-  const [title, setTitle] = useState("")
-  const [description, setDescription] = useState("")
-  const [link, setLink] = useState("")
+const TAG_META: Record<Tag, { label: string; color: string }> = {
+  fe: { label: "Frontend",  color: "bg-orange-100 text-orange-700" },
+  be: { label: "Backend",   color: "bg-blue-100 text-blue-700" },
+  ai: { label: "AI / Data", color: "bg-purple-100 text-purple-700" },
+  fs: { label: "Fullstack", color: "bg-green-100 text-green-700" },
+}
+
+const TAG_ICON: Record<Tag, React.ReactNode> = {
+  fe: <Code2  size={17} />,
+  be: <Server size={17} />,
+  ai: <Bot    size={17} />,
+  fs: <Layers size={17} />,
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function StatCard({ label, value, sub }: { label: string; value: React.ReactNode; sub: string }) {
+  return (
+    <div className="bg-slate-100 dark:bg-slate-800 rounded-xl p-4">
+      <p className="text-xs uppercase tracking-wider text-slate-500 mb-1">{label}</p>
+      <p className="text-2xl font-medium text-slate-800 dark:text-slate-100">{value}</p>
+      <p className="text-xs text-slate-400 mt-0.5">{sub}</p>
+    </div>
+  )
+}
+
+function SkillBar({
+  label, value, barColor, icon,
+}: {
+  label: string; value: number; barColor: string; icon: React.ReactNode
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex justify-between items-center text-sm text-slate-600 dark:text-slate-300">
+        <span className="flex items-center gap-1.5">{icon} {label}</span>
+        <span className="font-medium">{value}%</span>
+      </div>
+      <div className="w-full bg-slate-100 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
+        <div
+          className={`${barColor} h-full rounded-full transition-all duration-700 ease-out`}
+          style={{ width: `${value}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
+export default function Dashboard() {
+  const [projects, setProjects]     = useState<Project[]>([])
+  const [quiz,     setQuiz]         = useState<Quiz | null>(null)
+  const [loading,  setLoading]      = useState(true)
+  const [filter,   setFilter]       = useState<Tag | "all">("all")
+
+  // Form state
+  const [title,    setTitle]        = useState("")
+  const [desc,     setDesc]         = useState("")
+  const [link,     setLink]         = useState("")
+  const [tag,      setTag]          = useState<Tag>("fe")
+  const [editId,   setEditId]       = useState<string | null>(null)
+  const [saving,   setSaving]       = useState(false)
+
+  // ── Load data ──────────────────────────────────────────────────────────────
 
   async function loadData() {
-    const { data: user } = await supabase.auth.getUser()
-    if (!user?.user) return
+    const { data: userData } = await supabase.auth.getUser()
+    if (!userData?.user) return
+    const uid = userData.user.id
 
-    const uid = user.user.id
-
-    const { data: projectData } = await supabase
-      .from("portfolio_projects")
-      .select("*")
-      .eq("user_id", uid)
-      .order('created_at', { ascending: false })
-
-    const { data: quizData } = await supabase
-      .from("quiz_results")
-      .select("*")
-      .eq("user_id", uid)
-      .single()
+    const [{ data: projectData }, { data: quizData }] = await Promise.all([
+      supabase
+        .from("portfolio_projects")
+        .select("*")
+        .eq("user_id", uid)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("quiz_results")
+        .select("*")
+        .eq("user_id", uid)
+        .single(),
+    ])
 
     setProjects(projectData || [])
     setQuiz(quizData)
     setLoading(false)
   }
 
-  useEffect(() => {
-    loadData()
-  }, [])
-const [isSubmitting, setIsSubmitting] = useState(false);
-async function addProject() {
-  if (!title || !link) return alert("Vui lòng nhập tên và link dự án!");
-  
-  const { data: user } = await supabase.auth.getUser();
-  if (!user?.user) return alert("Phiên đăng nhập hết hạn, vui lòng đăng nhập lại!");
+  useEffect(() => { loadData() }, [])
 
-  // Lấy lỗi từ Supabase để kiểm tra
-  const { error } = await supabase.from("portfolio_projects").insert({
-    user_id: user.user.id,
-    title: title,
-    description: description,
-    link: link
-  });
+  // ── Add / Edit project ────────────────────────────────────────────────────
 
-  if (error) {
-    console.error("Lỗi insert dự án:", error.message);
-    alert("Không thể thêm dự án: " + error.message);
-  } else {
-    alert("Thêm dự án thành công!");
-    setTitle(""); 
-    setDescription(""); 
-    setLink("");
-    // Tải lại dữ liệu mới nhất
-    await loadData();
+  async function handleSave() {
+    if (!title.trim() || !link.trim()) {
+      toast.error("Vui lòng nhập tên và link dự án!")
+      return
+    }
+
+    setSaving(true)
+    const { data: userData } = await supabase.auth.getUser()
+    if (!userData?.user) {
+      toast.error("Phiên đăng nhập hết hạn, vui lòng đăng nhập lại!")
+      setSaving(false)
+      return
+    }
+
+    if (editId) {
+      // Update
+      const { error } = await supabase
+        .from("portfolio_projects")
+        .update({ title: title.trim(), description: desc.trim(), link: link.trim(), tag })
+        .eq("id", editId)
+
+      if (error) { toast.error("Lỗi cập nhật: " + error.message) }
+      else {
+        toast.success("Đã cập nhật dự án!")
+        clearForm()
+        await loadData()
+      }
+    } else {
+      // Insert
+      const { error } = await supabase
+        .from("portfolio_projects")
+        .insert({ user_id: userData.user.id, title: title.trim(), description: desc.trim(), link: link.trim(), tag })
+
+      if (error) { toast.error("Không thể thêm dự án: " + error.message) }
+      else {
+        toast.success("Đã thêm dự án thành công!")
+        clearForm()
+        await loadData()
+      }
+    }
+
+    setSaving(false)
   }
-}
+
+  function startEdit(p: Project) {
+    setEditId(p.id)
+    setTitle(p.title)
+    setDesc(p.description || "")
+    setLink(p.link)
+    setTag((p.tag as Tag) || "fe")
+    window.scrollTo({ top: 0, behavior: "smooth" })
+  }
+
+  function clearForm() {
+    setEditId(null)
+    setTitle("")
+    setDesc("")
+    setLink("")
+    setTag("fe")
+  }
+
+  // ── Delete project ─────────────────────────────────────────────────────────
+
+  async function deleteProject(id: string) {
+    const confirmed = window.confirm("Bạn có chắc muốn xóa dự án này không?")
+    if (!confirmed) return
+
+    const { error } = await supabase
+      .from("portfolio_projects")
+      .delete()
+      .eq("id", id)
+
+    if (error) { toast.error("Lỗi khi xóa: " + error.message) }
+    else {
+      toast.success("Đã xóa dự án.")
+      setProjects(prev => prev.filter(p => p.id !== id))
+    }
+  }
+
+  // ── Derived data ───────────────────────────────────────────────────────────
+
+  const filteredProjects = filter === "all"
+    ? projects
+    : projects.filter(p => p.tag === filter)
+
+  const topSkill = quiz
+    ? (Object.entries({ Frontend: quiz.frontend, Backend: quiz.backend, "AI / Data": quiz.ai })
+        .sort((a, b) => b[1] - a[1])[0])
+    : null
+
+  const today = new Date().toLocaleDateString("vi-VN", {
+    weekday: "long", day: "numeric", month: "long",
+  })
+
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   if (loading) return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center font-medium text-slate-500 italic">
-      Đang tải dữ liệu hệ thống...
+    <div className="min-h-screen flex items-center justify-center text-slate-400 italic text-sm">
+      Đang tải dữ liệu...
     </div>
   )
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-20">
-      {/* Header */}
-      <div className="bg-white border-b border-slate-200 mb-10">
-        <div className="max-w-5xl mx-auto px-6 py-8 flex items-center gap-3">
-          <div className="bg-blue-600 p-2 rounded-lg text-white">
-            <LayoutDashboard size={24} />
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 pb-20">
+      <Toaster position="bottom-center" toastOptions={{ style: { borderRadius: "99px", fontSize: "13px" } }} />
+
+      {/* ── Header ── */}
+      <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 mb-6">
+        <div className="max-w-5xl mx-auto px-6 py-5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="bg-blue-600 p-2 rounded-lg text-white">
+              <LayoutDashboard size={22} />
+            </div>
+            <div>
+              <h1 className="text-lg font-medium text-slate-800 dark:text-slate-100">Trung tâm Điều khiển</h1>
+              <p className="text-xs text-slate-400">Xin chào, developer 👋</p>
+            </div>
           </div>
-          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Trung tâm Điều khiển</h1>
+          <div className="hidden md:flex items-center gap-1.5 text-xs text-slate-400">
+            <Calendar size={14} />
+            {today}
+          </div>
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
-        {/* CỘT TRÁI: THÔNG TIN KỸ NĂNG */}
-        <div className="lg:col-span-1 space-y-6">
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-            <h2 className="font-bold text-slate-800 mb-6 flex items-center gap-2 text-lg">
-              <BrainCircuit className="text-blue-500" size={20} /> Chỉ số Kỹ năng
-            </h2>
-            
-            {quiz ? (
-              <div className="space-y-6">
-                <SkillBar label="Frontend" value={quiz.frontend} color="bg-orange-500" icon={<Code2 size={16}/>} />
-                <SkillBar label="Backend" value={quiz.backend} color="bg-blue-500" icon={<Server size={16}/>} />
-                <SkillBar label="AI / Data" value={quiz.ai} color="bg-purple-500" icon={<BrainCircuit size={16}/>} />
+      <div className="max-w-5xl mx-auto px-6 space-y-6">
+
+        {/* ── Stat cards ── */}
+        <div className="grid grid-cols-3 gap-3">
+          <StatCard
+            label="Dự án"
+            value={projects.length}
+            sub="trong portfolio"
+          />
+          <StatCard
+            label="Kỹ năng cao nhất"
+            value={topSkill ? topSkill[0] : "—"}
+            sub={topSkill ? `${topSkill[1]}% điểm số` : "chưa có quiz"}
+          />
+          <StatCard
+            label="Trạng thái"
+            value={<span className="text-emerald-500 text-base">✓ Hoạt động</span>}
+            sub="tài khoản bình thường"
+          />
+        </div>
+
+        {/* ── Main grid ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+          {/* Cột trái: Kỹ năng */}
+          <div className="space-y-4">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5">
+              <h2 className="text-sm font-medium text-slate-700 dark:text-slate-200 flex items-center gap-2 mb-5">
+                <BrainCircuit size={16} className="text-blue-500" /> Chỉ số kỹ năng
+              </h2>
+              <div className="space-y-5">
+                <SkillBar label="Frontend" value={quiz?.frontend ?? 0} barColor="bg-orange-500" icon={<Code2 size={14}/>} />
+                <SkillBar label="Backend"  value={quiz?.backend  ?? 0} barColor="bg-blue-500"   icon={<Server size={14}/>} />
+                <SkillBar label="AI / Data" value={quiz?.ai      ?? 0} barColor="bg-purple-500" icon={<Bot size={14}/>} />
               </div>
-            ) : (
-              <p className="text-slate-400 text-sm italic">Chưa có dữ liệu Quiz. Hãy làm Quiz ngay!</p>
-            )}
-          </div>
-        </div>
-
-        {/* CỘT PHẢI: QUẢN LÝ DỰ ÁN */}
-        <div className="lg:col-span-2 space-y-8">
-          
-          {/* Form thêm dự án */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-            <h2 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <Plus className="text-green-500" size={20} /> Thêm dự án mới
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <input
-                className="col-span-1 md:col-span-2 bg-slate-50 border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                placeholder="Tên dự án (ví dụ: E-commerce Web)"
-                value={title}
-                onChange={e => setTitle(e.target.value)}
-              />
-              <input
-                className="bg-slate-50 border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                placeholder="Link Demo / GitHub"
-                value={link}
-                onChange={e => setLink(e.target.value)}
-              />
-              <input
-                className="bg-slate-50 border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                placeholder="Mô tả ngắn gọn"
-                value={description}
-                onChange={e => setDescription(e.target.value)}
-              />
-              <button
-                onClick={addProject}
-                className="col-span-1 md:col-span-2 bg-slate-900 text-white font-bold p-3 rounded-xl hover:bg-blue-600 transition-colors shadow-lg shadow-slate-200"
-              >
-                Cập nhật Portfolio
-              </button>
+              {!quiz && (
+                <p className="text-xs text-slate-400 italic mt-4">Chưa có dữ liệu Quiz. Hãy làm Quiz ngay!</p>
+              )}
             </div>
           </div>
 
-          {/* Danh sách dự án */}
-          <div>
-            <h2 className="font-bold text-slate-800 mb-4 text-xl px-2">Dự án của bạn ({projects.length})</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {projects.map(p => (
-                <div key={p.id} className="group bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:border-blue-300 hover:shadow-md transition-all">
-                  <h3 className="font-bold text-slate-800 group-hover:text-blue-600 transition-colors mb-2 truncate">
-                    {p.title}
-                  </h3>
-                  <p className="text-slate-500 text-sm line-clamp-2 mb-4 h-10">
-                    {p.description || "Không có mô tả cho dự án này."}
-                  </p>
-                  <a
-                    href={p.link}
-                    target="_blank"
-                    className="inline-flex items-center gap-2 text-sm font-bold text-blue-500 hover:text-blue-700 transition-colors"
+          {/* Cột phải: Form + danh sách */}
+          <div className="lg:col-span-2 space-y-5">
+
+            {/* Form thêm / chỉnh sửa */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5">
+              <h2 className="text-sm font-medium text-slate-700 dark:text-slate-200 flex items-center gap-2 mb-4">
+                {editId ? <Pencil size={15} className="text-amber-500" /> : <Plus size={15} className="text-emerald-500" />}
+                {editId ? "Chỉnh sửa dự án" : "Thêm dự án mới"}
+              </h2>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <input
+                  className="md:col-span-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 rounded-xl text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="Tên dự án (ví dụ: E-commerce Web)"
+                  value={title}
+                  onChange={e => setTitle(e.target.value)}
+                />
+                <input
+                  className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 rounded-xl text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="Link Demo / GitHub"
+                  value={link}
+                  onChange={e => setLink(e.target.value)}
+                />
+                <input
+                  className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 rounded-xl text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="Mô tả ngắn gọn"
+                  value={desc}
+                  onChange={e => setDesc(e.target.value)}
+                />
+                <select
+                  className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 rounded-xl text-sm text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 outline-none"
+                  value={tag}
+                  onChange={e => setTag(e.target.value as Tag)}
+                >
+                  <option value="fe">Frontend</option>
+                  <option value="be">Backend</option>
+                  <option value="ai">AI / Data</option>
+                  <option value="fs">Fullstack</option>
+                </select>
+
+                <div className="md:col-span-2 flex gap-2">
+                  <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="flex-1 flex items-center justify-center gap-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-medium text-sm py-2.5 rounded-xl hover:bg-blue-600 dark:hover:bg-blue-500 dark:hover:text-white transition-colors disabled:opacity-50"
                   >
-                    Xem chi tiết <ExternalLink size={14} />
-                  </a>
+                    {saving ? (
+                      <RefreshCw size={15} className="animate-spin" />
+                    ) : editId ? (
+                      <><Check size={15} /> Lưu chỉnh sửa</>
+                    ) : (
+                      <><Save size={15} /> Lưu vào Portfolio</>
+                    )}
+                  </button>
+                  {editId && (
+                    <button
+                      onClick={clearForm}
+                      className="px-4 text-sm text-slate-500 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    >
+                      Hủy
+                    </button>
+                  )}
                 </div>
-              ))}
+              </div>
             </div>
+
+            {/* Danh sách dự án */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                  Dự án của bạn
+                  <span className="ml-1.5 text-xs font-normal text-slate-400">({projects.length})</span>
+                </h2>
+                <div className="flex gap-1.5 flex-wrap">
+                  {(["all", "fe", "be", "ai", "fs"] as const).map(f => (
+                    <button
+                      key={f}
+                      onClick={() => setFilter(f)}
+                      className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                        filter === f
+                          ? "bg-blue-600 text-white border-blue-600"
+                          : "border-slate-200 dark:border-slate-700 text-slate-500 hover:border-slate-300"
+                      }`}
+                    >
+                      {f === "all" ? "Tất cả" : TAG_META[f].label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {filteredProjects.length === 0 ? (
+                <div className="text-center py-10 text-slate-400 text-sm border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl">
+                  Chưa có dự án nào. Thêm dự án đầu tiên!
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {filteredProjects.map(p => {
+                    const t = (p.tag as Tag) || "fe"
+                    return (
+                      <div
+                        key={p.id}
+                        className="flex items-center gap-3 p-3 border border-slate-100 dark:border-slate-800 rounded-xl hover:border-slate-200 dark:hover:border-slate-700 transition-colors group"
+                      >
+                        <div className="w-9 h-9 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0">
+                          {TAG_ICON[t]}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{p.title}</span>
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${TAG_META[t].color}`}>
+                              {TAG_META[t].label}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-400 truncate">{p.description || "Không có mô tả."}</p>
+                        </div>
+                        <div className="flex gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <a
+                            href={p.link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-blue-600 hover:border-blue-300 transition-colors"
+                          >
+                            <ExternalLink size={14} />
+                          </a>
+                          <button
+                            onClick={() => startEdit(p)}
+                            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-amber-600 hover:border-amber-300 transition-colors"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            onClick={() => deleteProject(p.id)}
+                            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-red-600 hover:border-red-300 transition-colors"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
           </div>
-
         </div>
-      </div>
-    </div>
-  )
-}
-
-// Component con cho thanh tiến độ kỹ năng
-function SkillBar({ label, value, color, icon }: any) {
-  return (
-    <div className="space-y-2">
-      <div className="flex justify-between items-center text-sm font-bold text-slate-600 uppercase tracking-tight">
-        <span className="flex items-center gap-2">{icon} {label}</span>
-        <span>{value}%</span>
-      </div>
-      <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden shadow-inner">
-        <div 
-          className={`${color} h-full transition-all duration-1000 ease-out`} 
-          style={{ width: `${value}%` }} 
-        />
       </div>
     </div>
   )
