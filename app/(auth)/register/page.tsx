@@ -53,7 +53,10 @@ export default function Register() {
 
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 relative overflow-hidden">
-      
+      <Link href="/" className="absolute top-5 left-5 z-20 text-sm text-slate-400 hover:text-white">
+        ← Về trang chủ
+      </Link>
+
       {/* Hiệu ứng ánh sáng nền giống trang chủ */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full z-0">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-900/20 rounded-full blur-[120px]"></div>

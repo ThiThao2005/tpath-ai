@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { supabase } from "@/lib/supabase"
 import { useRouter } from "next/navigation"
+import Link from "next/link"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -40,7 +41,10 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center h-screen bg-gray-50">
+    <div className="relative flex flex-col items-center justify-center min-h-screen bg-gray-50 text-slate-900 p-6">
+      <Link href="/" className="absolute top-5 left-5 text-sm text-slate-500 hover:text-slate-900">
+        ← Về trang chủ
+      </Link>
       <div className="p-10 bg-white shadow-xl rounded-lg border">
         <h1 className="text-2xl font-bold text-center mb-6">Đăng nhập ITPath AI</h1>
 
@@ -78,6 +82,11 @@ export default function LoginPage() {
         >
           Đăng nhập bằng Email
         </button>
+
+        <p className="text-center text-sm text-gray-500 mt-6">
+          Chưa có tài khoản?{" "}
+          <Link href="/register" className="text-blue-600 font-semibold hover:underline">Đăng ký</Link>
+        </p>
       </div>
     </div>
   )

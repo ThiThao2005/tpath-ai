@@ -36,7 +36,10 @@ export default async function PublicProfilePage({
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 pb-16">
       <div className="bg-slate-900 text-white">
-        <div className="max-w-5xl mx-auto px-6 py-10 flex items-center gap-5">
+        <div className="max-w-5xl mx-auto px-6 pt-5">
+          <Link href="/" className="text-sm text-slate-400 hover:text-white">← ITPath AI</Link>
+        </div>
+        <div className="max-w-5xl mx-auto px-6 pt-6 pb-10 flex items-center gap-5">
           <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center text-3xl font-bold flex-shrink-0">
             {profile.username.charAt(0).toUpperCase()}
           </div>
@@ -66,10 +69,6 @@ export default async function PublicProfilePage({
             </div>
           </>
         )}
-
-        <Link href="/" className="inline-block pt-4 text-sm text-slate-400 hover:text-slate-600">
-          ← ITPath AI
-        </Link>
       </div>
     </div>
   )
