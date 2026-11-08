@@ -1,7 +1,8 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
-import { ExternalLink } from "lucide-react"
+import { Code2, ExternalLink } from "lucide-react"
 import { supabase } from "@/lib/supabase"
+import { splitGithub, isSafeUrl } from "@/lib/project"
 
 // Luôn lấy dữ liệu mới nhất (không cache trang hồ sơ)
 export const dynamic = "force-dynamic"
@@ -55,22 +56,37 @@ export default async function PublicProfilePage({
         <p className="text-gray-400 italic">Người dùng này chưa thêm dự án nào.</p>
       ) : (
         <div className="space-y-4">
-          {list.map((p) => (
-            <div key={p.id} className="border p-4 rounded-lg shadow-sm">
-              <h3 className="font-bold text-lg">{p.title}</h3>
-              <p className="text-gray-600">{p.description || "Không có mô tả."}</p>
-              {p.link && /^https?:\/\//i.test(p.link) && (
-                <a
-                  href={p.link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-blue-600 hover:underline mt-1"
-                >
-                  View project <ExternalLink size={14} />
-                </a>
-              )}
-            </div>
-          ))}
+          {list.map((p) => {
+            const { text, github } = splitGithub(p.description)
+            return (
+              <div key={p.id} className="border p-4 rounded-lg shadow-sm">
+                <h3 className="font-bold text-lg">{p.title}</h3>
+                <p className="text-gray-600 whitespace-pre-line break-words">{text || "Không có mô tả."}</p>
+                <div className="flex flex-wrap gap-4 mt-2">
+                  {isSafeUrl(p.link) && (
+                    <a
+                      href={p.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-blue-600 hover:underline"
+                    >
+                      Xem demo <ExternalLink size={14} />
+                    </a>
+                  )}
+                  {github && (
+                    <a
+                      href={github}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-gray-800 hover:underline"
+                    >
+                      <Code2 size={14} /> GitHub
+                    </a>
+                  )}
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
 

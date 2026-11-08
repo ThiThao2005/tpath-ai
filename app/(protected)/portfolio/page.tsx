@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
-import { FolderOpen, Trash2, ExternalLink, Briefcase } from "lucide-react"
+import { FolderOpen, Trash2, ExternalLink, Briefcase, Code2 } from "lucide-react"
+import { splitGithub, isSafeUrl } from "@/lib/project"
 
 type Project = {
   id: string // Đổi thành string nếu dùng UUID của Supabase
@@ -83,7 +84,9 @@ const deleteProject = async (id: string) => {
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-6">
-            {projects.map((p) => (
+            {projects.map((p) => {
+              const { text, github } = splitGithub(p.description)
+              return (
               <div 
                 key={p.id} 
                 className="group bg-white border border-slate-200 p-6 rounded-2xl shadow-sm hover:shadow-md hover:border-blue-200 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4"
@@ -92,10 +95,11 @@ const deleteProject = async (id: string) => {
                   <h3 className="text-xl font-bold text-slate-800 group-hover:text-blue-600 transition-colors">
                     {p.title}
                   </h3>
-                  <p className="text-slate-500 text-sm leading-relaxed">
-                    {p.description || "Dự án này chưa có mô tả chi tiết."}
+                  <p className="text-slate-500 text-sm leading-relaxed whitespace-pre-line break-words">
+                    {text || "Dự án này chưa có mô tả chi tiết."}
                   </p>
-                  {p.link && (
+                  <div className="flex flex-wrap gap-4">
+                  {isSafeUrl(p.link) && (
                     <a 
                       href={p.link} 
                       target="_blank"
@@ -105,6 +109,17 @@ const deleteProject = async (id: string) => {
                       Truy cập sản phẩm <ExternalLink size={14} />
                     </a>
                   )}
+                  {github && (
+                    <a
+                      href={github}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-slate-700 font-semibold text-sm hover:underline"
+                    >
+                      <Code2 size={14} /> GitHub
+                    </a>
+                  )}
+                  </div>
                 </div>
 
                 <button 
@@ -114,7 +129,8 @@ const deleteProject = async (id: string) => {
                   <Trash2 size={16} /> Xóa
                 </button>
               </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

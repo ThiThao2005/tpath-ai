@@ -5,10 +5,11 @@ import { supabase } from "@/lib/supabase"
 import {
   LayoutDashboard, Plus, ExternalLink, BrainCircuit,
   Code2, Server, Bot, Layers, Trash2, Pencil, Check,
-  RefreshCw, Save, Calendar
+  RefreshCw, Save, Calendar, ChevronDown
 } from "lucide-react"
 import toast from "react-hot-toast"
 import { getQuizResult, toPercent, type QuizScores } from "@/lib/quiz"
+import { splitGithub, isSafeUrl } from "@/lib/project"
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -96,6 +97,7 @@ export default function Dashboard() {
   const [quiz,     setQuiz]         = useState<QuizScores | null>(null)
   const [loading,  setLoading]      = useState(true)
   const [filter,   setFilter]       = useState<Tag | "all">("all")
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   // Form state
   const [title,    setTitle]        = useState("")
@@ -326,9 +328,10 @@ export default function Dashboard() {
                   value={link}
                   onChange={e => setLink(e.target.value)}
                 />
-                <input
-                  className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 rounded-xl text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500 outline-none"
-                  placeholder="Mô tả ngắn gọn"
+                <textarea
+                  rows={3}
+                  className="md:row-span-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 rounded-xl text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500 outline-none resize-y"
+                  placeholder="Mô tả: tính năng, công nghệ, link GitHub..."
                   value={desc}
                   onChange={e => setDesc(e.target.value)}
                 />
@@ -401,45 +404,86 @@ export default function Dashboard() {
                 <div className="space-y-2">
                   {filteredProjects.map(p => {
                     const t = (p.tag as Tag) || "fe"
+                    const open = expandedId === p.id
+                    const { text, github } = splitGithub(p.description)
                     return (
                       <div
                         key={p.id}
-                        className="flex items-center gap-3 p-3 border border-slate-100 dark:border-slate-800 rounded-xl hover:border-slate-200 dark:hover:border-slate-700 transition-colors group"
+                        className={`border rounded-xl transition-colors ${
+                          open
+                            ? "border-blue-200 dark:border-blue-800 bg-blue-50/30 dark:bg-blue-950/20"
+                            : "border-slate-100 dark:border-slate-800 hover:border-slate-200 dark:hover:border-slate-700"
+                        }`}
                       >
-                        <div className="w-9 h-9 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0">
-                          {TAG_ICON[t]}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{p.title}</span>
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${TAG_META[t].color}`}>
-                              {TAG_META[t].label}
-                            </span>
+                        {/* Hàng tóm tắt: bấm để mở / đóng chi tiết */}
+                        <button
+                          type="button"
+                          onClick={() => setExpandedId(open ? null : p.id)}
+                          aria-expanded={open}
+                          className="w-full flex items-center gap-3 p-3 text-left"
+                        >
+                          <div className="w-9 h-9 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0">
+                            {TAG_ICON[t]}
                           </div>
-                          <p className="text-xs text-slate-400 truncate">{p.description || "Không có mô tả."}</p>
-                        </div>
-                        <div className="flex gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <a
-                            href={p.link}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-blue-600 hover:border-blue-300 transition-colors"
-                          >
-                            <ExternalLink size={14} />
-                          </a>
-                          <button
-                            onClick={() => startEdit(p)}
-                            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-amber-600 hover:border-amber-300 transition-colors"
-                          >
-                            <Pencil size={14} />
-                          </button>
-                          <button
-                            onClick={() => deleteProject(p.id)}
-                            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-red-600 hover:border-red-300 transition-colors"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-sm font-medium text-slate-800 dark:text-slate-100 ${open ? "" : "truncate"}`}>{p.title}</span>
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${TAG_META[t].color}`}>
+                                {TAG_META[t].label}
+                              </span>
+                            </div>
+                            {!open && (
+                              <p className="text-xs text-slate-400 truncate">{text || "Không có mô tả."}</p>
+                            )}
+                          </div>
+                          <ChevronDown
+                            size={16}
+                            className={`flex-shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
+                          />
+                        </button>
+
+                        {/* Phần chi tiết */}
+                        {open && (
+                          <div className="px-3 pb-3 pl-[3.75rem] space-y-3">
+                            <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-line break-words">
+                              {text || "Không có mô tả."}
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {isSafeUrl(p.link) && (
+                                <a
+                                  href={p.link}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                                >
+                                  <ExternalLink size={13} /> Xem demo
+                                </a>
+                              )}
+                              {github && (
+                                <a
+                                  href={github}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 hover:opacity-90 transition-opacity"
+                                >
+                                  <Code2 size={13} /> GitHub
+                                </a>
+                              )}
+                              <button
+                                onClick={() => startEdit(p)}
+                                className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-amber-600 hover:border-amber-300 transition-colors"
+                              >
+                                <Pencil size={13} /> Sửa
+                              </button>
+                              <button
+                                onClick={() => deleteProject(p.id)}
+                                className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-red-600 hover:border-red-300 transition-colors"
+                              >
+                                <Trash2 size={13} /> Xóa
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )
                   })}
