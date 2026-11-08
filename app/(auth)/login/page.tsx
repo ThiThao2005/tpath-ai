@@ -9,12 +9,18 @@ export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
 
+  // Trang đích sau khi đăng nhập (?next=/quiz), chỉ chấp nhận đường dẫn nội bộ
+  const getNext = () => {
+    const next = new URLSearchParams(window.location.search).get("next")
+    return next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard"
+  }
+
   // --- HÀM ĐĂNG NHẬP GOOGLE ---
   const loginWithGoogle = async () => {
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: "http://localhost:3000/dashboard"
+        redirectTo: `${window.location.origin}${getNext()}`
       }
     })
   }
@@ -29,7 +35,7 @@ export default function LoginPage() {
     if (error) {
       alert(error.message)
     } else {
-      router.push("/dashboard")
+      router.push(getNext())
     }
   }
 

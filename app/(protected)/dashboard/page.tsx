@@ -7,7 +7,8 @@ import {
   Code2, Server, Bot, Layers, Trash2, Pencil, Check,
   RefreshCw, Save, Calendar
 } from "lucide-react"
-import toast, { Toaster } from "react-hot-toast"
+import toast from "react-hot-toast"
+import { getQuizResult, toPercent, type QuizScores } from "@/lib/quiz"
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -19,12 +20,6 @@ type Project = {
   description: string
   link: string
   tag?: Tag
-}
-
-type Quiz = {
-  frontend: number
-  backend: number
-  ai: number
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -41,6 +36,24 @@ const TAG_ICON: Record<Tag, React.ReactNode> = {
   be: <Server size={17} />,
   ai: <Bot    size={17} />,
   fs: <Layers size={17} />,
+}
+
+/**
+ * Nếu database chưa có cột `tag` (chưa chạy supabase/rls.sql),
+ * thử lại không kèm `tag` để việc lưu dự án vẫn thành công.
+ */
+async function withoutTagFallback<T extends { tag?: Tag }>(
+  fields: T,
+  run: (f: Partial<T>) => PromiseLike<{ error: { code?: string; message: string } | null }>
+) {
+  const res = await run(fields)
+  if (res.error && /'tag' column/.test(res.error.message)) {
+    console.warn("Bảng portfolio_projects chưa có cột tag — hãy chạy supabase/rls.sql")
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { tag: _omit, ...rest } = fields
+    return run(rest as Partial<T>)
+  }
+  return res
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -80,7 +93,7 @@ function SkillBar({
 
 export default function Dashboard() {
   const [projects, setProjects]     = useState<Project[]>([])
-  const [quiz,     setQuiz]         = useState<Quiz | null>(null)
+  const [quiz,     setQuiz]         = useState<QuizScores | null>(null)
   const [loading,  setLoading]      = useState(true)
   const [filter,   setFilter]       = useState<Tag | "all">("all")
 
@@ -95,25 +108,22 @@ export default function Dashboard() {
   // ── Load data ──────────────────────────────────────────────────────────────
 
   async function loadData() {
-    const { data: userData } = await supabase.auth.getUser()
-    if (!userData?.user) return
-    const uid = userData.user.id
+    const { data: sessionData } = await supabase.auth.getSession()
+    const user = sessionData.session?.user
+    if (!user) { setLoading(false); return }
+    const uid = user.id
 
-    const [{ data: projectData }, { data: quizData }] = await Promise.all([
+    const [{ data: projectData }, quizData] = await Promise.all([
       supabase
         .from("portfolio_projects")
         .select("*")
         .eq("user_id", uid)
         .order("created_at", { ascending: false }),
-      supabase
-        .from("quiz_results")
-        .select("*")
-        .eq("user_id", uid)
-        .single(),
+      getQuizResult(uid),
     ])
 
     setProjects(projectData || [])
-    setQuiz(quizData)
+    setQuiz(quizData ? toPercent(quizData) : null)
     setLoading(false)
   }
 
@@ -126,21 +136,27 @@ export default function Dashboard() {
       toast.error("Vui lòng nhập tên và link dự án!")
       return
     }
+    if (!/^https?:\/\//i.test(link.trim())) {
+      toast.error("Link phải bắt đầu bằng http:// hoặc https://")
+      return
+    }
 
     setSaving(true)
-    const { data: userData } = await supabase.auth.getUser()
-    if (!userData?.user) {
+    const { data: sessionData } = await supabase.auth.getSession()
+    const sessionUser = sessionData.session?.user
+    if (!sessionUser) {
       toast.error("Phiên đăng nhập hết hạn, vui lòng đăng nhập lại!")
       setSaving(false)
       return
     }
 
+    const fields = { title: title.trim(), description: desc.trim(), link: link.trim(), tag }
+
     if (editId) {
       // Update
-      const { error } = await supabase
-        .from("portfolio_projects")
-        .update({ title: title.trim(), description: desc.trim(), link: link.trim(), tag })
-        .eq("id", editId)
+      const { error } = await withoutTagFallback(fields, (f) =>
+        supabase.from("portfolio_projects").update(f).eq("id", editId)
+      )
 
       if (error) { toast.error("Lỗi cập nhật: " + error.message) }
       else {
@@ -150,9 +166,10 @@ export default function Dashboard() {
       }
     } else {
       // Insert
-      const { error } = await supabase
-        .from("portfolio_projects")
-        .insert({ user_id: userData.user.id, title: title.trim(), description: desc.trim(), link: link.trim(), tag })
+      const uid = sessionUser.id
+      const { error } = await withoutTagFallback(fields, (f) =>
+        supabase.from("portfolio_projects").insert({ user_id: uid, ...f })
+      )
 
       if (error) { toast.error("Không thể thêm dự án: " + error.message) }
       else {
@@ -225,7 +242,6 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 pb-20">
-      <Toaster position="bottom-center" toastOptions={{ style: { borderRadius: "99px", fontSize: "13px" } }} />
 
       {/* ── Header ── */}
       <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 mb-6">

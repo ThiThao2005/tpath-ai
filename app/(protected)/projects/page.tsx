@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { supabase } from "@/lib/supabase"
+import { getQuizResult, toPercent } from "@/lib/quiz"
 import { 
   Lightbulb, 
   Sparkles, 
@@ -29,27 +30,26 @@ export default function ProjectsPage() {
     setLoading(true)
     try {
       // 1. Lấy thông tin user hiện tại
-      const { data: userData } = await supabase.auth.getUser()
-      if (!userData.user) return alert("Vui lòng đăng nhập để dùng tính năng này!")
+      const { data: sessionData } = await supabase.auth.getSession()
+      const session = sessionData.session
+      if (!session) return alert("Vui lòng đăng nhập để dùng tính năng này!")
 
       // 2. Lấy kỹ năng từ bảng quiz_results (Dùng maybeSingle để tránh lỗi nếu chưa có dữ liệu)
-      const { data: quizData, error: quizError } = await supabase
-        .from("quiz_results")
-        .select("*")
-        .eq("user_id", userData.user.id)
-        .maybeSingle()
-
-      if (quizError) console.warn("Lỗi truy vấn quiz:", quizError.message)
+      const quizRaw = await getQuizResult(session.user.id)
+      const quizData = quizRaw ? toPercent(quizRaw) : null
 
       // Tạo chuỗi kỹ năng gửi cho AI
       const skills = quizData 
-        ? `Frontend: ${quizData.frontend}, Backend: ${quizData.backend}, AI: ${quizData.ai}`
+        ? `Frontend ${quizData.frontend}%, Backend ${quizData.backend}%, AI ${quizData.ai}%`
         : "React, Node.js, TypeScript"
 
       // 3. Gọi API Route
       const res = await fetch("/api/recommend-projects", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
         body: JSON.stringify({ skills })
       })
 

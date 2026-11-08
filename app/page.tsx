@@ -3,6 +3,7 @@ import toast from "react-hot-toast";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { ensureProfile } from "@/lib/profile";
 import { useRouter } from "next/navigation";
 import { 
   ChevronRight, Target, Map, Lightbulb, 
@@ -11,6 +12,9 @@ import {
 
 export default function HomePage() {
   const [user, setUser] = useState<any>(null);
+  // Lưu kèm id để không hiển thị username của tài khoản trước khi đổi user
+  const [profile, setProfile] = useState<{ uid: string; username: string | null } | null>(null);
+  const username = user && profile && profile.uid === user.id ? profile.username : null;
   const router = useRouter();
 
 
@@ -41,8 +45,8 @@ export default function HomePage() {
   };
 useEffect(() => {
     // 1. Lấy user hiện tại khi vừa load trang
-    supabase.auth.getUser().then(({ data }) => {
-      setUser(data.user);
+    supabase.auth.getSession().then(({ data }) => {
+      setUser(data.session?.user ?? null);
     });
 
     // 2. Lắng nghe sự thay đổi trạng thái đăng nhập
@@ -52,6 +56,15 @@ useEffect(() => {
 
     return () => subscription.unsubscribe(); // Dọn dẹp listener khi component unmount
   }, []);
+
+  // Lấy (hoặc tạo) username để dẫn tới hồ sơ công khai của chính user
+  useEffect(() => {
+    if (!user) return;
+    const uid = user.id;
+    ensureProfile(user)
+      .then((name) => setProfile({ uid, username: name }))
+      .catch(() => setProfile({ uid, username: null }));
+  }, [user]);
 
 
 
@@ -148,7 +161,9 @@ useEffect(() => {
           <div className="flex flex-wrap justify-center gap-4 mt-16 w-full max-w-4xl animate-in fade-in slide-in-from-bottom-4 duration-700">
             <SmallLink href="/dashboard" icon={<LayoutGrid size={16}/>} text="Dashboard" />
             <SmallLink href="/portfolio" icon={<FolderOpen size={16}/>} text="My Portfolio" />
-            <SmallLink href="/u/thao" icon={<User size={16}/>} text="Public Profile" />
+            {username && (
+              <SmallLink href={`/u/${username}`} icon={<User size={16}/>} text="Public Profile" />
+            )}
           </div>
         )}
       </main>

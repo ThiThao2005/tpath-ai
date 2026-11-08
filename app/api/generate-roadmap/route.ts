@@ -1,43 +1,64 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { supabaseUrl, supabaseKey } from "@/lib/supabase"
 
-// Khởi tạo Supabase client với Service Role Key để có quyền ghi dữ liệu
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY! 
-)
+// KHÔNG tin userId từ client: luôn lấy user từ access token trong header.
+// Client được tạo "thay mặt" user (gắn token), nên RLS trên Supabase vẫn áp dụng.
+function clientForUser(token: string) {
+  return createClient(supabaseUrl!, supabaseKey!, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+}
+
+const ROADMAP_STEPS = [
+  "Month 1 - Learn HTML & CSS",
+  "Month 2 - JavaScript Basics",
+  "Month 3 - React Fundamentals",
+  "Month 4 - Build React Project",
+  "Month 5 - Learn Node.js",
+  "Month 6 - Build Fullstack App",
+]
 
 export async function POST(request: Request) {
   try {
-    // 1. Lấy userId từ request body (bạn cần truyền cái này từ frontend lên)
-    const { userId } = await request.json()
-
-    if (!userId) {
-      return NextResponse.json({ error: "Missing User ID" }, { status: 400 })
+    // 1. Xác thực người dùng bằng access token
+    const authHeader = request.headers.get("authorization") ?? ""
+    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // 2. Nội dung roadmap của bạn
-    const roadmapText = `
-Month 1 - Learn HTML & CSS
-Month 2 - JavaScript Basics
-Month 3 - React Fundamentals
-Month 4 - Build React Project
-Month 5 - Learn Node.js
-Month 6 - Build Fullstack App
-`
-    // Tách chuỗi thành mảng các dòng và lọc bỏ dòng trống
-    const steps = roadmapText.trim().split("\n")
+    const db = clientForUser(token)
+    const { data: userData, error: authError } = await db.auth.getUser(token)
+    if (authError || !userData.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    const userId = userData.user.id
 
-    // 3. Lưu từng bước vào Database
-    // Chúng ta dùng map để tạo mảng object rồi insert một lần cho nhanh
-    const { error: insertError } = await supabase
+    // 2. Xóa roadmap cũ để "Làm mới" không bị trùng bước
+    const { error: deleteError } = await db
+      .from("roadmap_progress")
+      .delete()
+      .eq("user_id", userId)
+
+    if (deleteError) {
+      console.error("Delete DB Error:", deleteError)
+      throw new Error("Không xóa được roadmap cũ")
+    }
+
+    // 3. Lưu các bước mới
+    // Mỗi bước cách nhau 1 giây để sắp xếp theo created_at luôn đúng thứ tự
+    const base = Date.now()
+    const { error: insertError } = await db
       .from("roadmap_progress")
       .insert(
-        steps.map((step) => ({
+        ROADMAP_STEPS.map((step, i) => ({
           user_id: userId,
-          skill: "Web Development", // Bạn có thể thay đổi tùy ý
-          step: step.trim(),
-          completed: false
+          skill: "Web Development",
+          step,
+          completed: false,
+          created_at: new Date(base + i * 1000).toISOString(),
         }))
       )
 
@@ -47,10 +68,9 @@ Month 6 - Build Fullstack App
     }
 
     return NextResponse.json({
-      roadmap: roadmapText.trim(),
-      message: "Lưu roadmap thành công!"
+      roadmap: ROADMAP_STEPS.join("\n"),
+      message: "Lưu roadmap thành công!",
     })
-
   } catch (err) {
     console.error("ROADMAP ERROR:", err)
     return NextResponse.json(

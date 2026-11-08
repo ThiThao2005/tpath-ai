@@ -1,12 +1,26 @@
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
+import { supabase } from "@/lib/supabase";
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    let skills = body.skills;
+    // Chỉ user đã đăng nhập mới được gọi Gemini (tránh bị dùng trộm quota)
+    const authHeader = req.headers.get("authorization") ?? "";
+    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    const { data: userData } = token
+      ? await supabase.auth.getUser(token)
+      : { data: { user: null } };
+    if (!userData.user) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await req.json().catch(() => ({}));
+    let skills: unknown = body.skills;
 
     if (typeof skills === "string") {
-      skills = skills.split(",").map((s: string) => s.trim());
+      skills = skills.split(",").map((s) => s.trim());
+    }
+    if (!Array.isArray(skills) || skills.length === 0) {
+      return Response.json({ error: "Missing skills" }, { status: 400 });
     }
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);

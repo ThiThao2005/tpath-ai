@@ -18,8 +18,8 @@ export default function PortfolioPage() {
   // 1. Hàm load danh sách dự án
   const loadProjects = async () => {
     setLoading(true)
-    const { data: userData } = await supabase.auth.getUser()
-    const user = userData.user
+    const { data: sessionData } = await supabase.auth.getSession()
+    const user = sessionData.session?.user
 
     if (!user) {
       setLoading(false)
@@ -98,7 +98,8 @@ const deleteProject = async (id: string) => {
                   {p.link && (
                     <a 
                       href={p.link} 
-                      target="_blank" 
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 text-blue-500 font-semibold text-sm hover:underline"
                     >
                       Truy cập sản phẩm <ExternalLink size={14} />

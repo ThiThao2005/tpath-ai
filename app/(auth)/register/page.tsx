@@ -4,19 +4,39 @@ import { useState } from "react"
 import { supabase } from "@/lib/supabase"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { normalizeUsername, USERNAME_PATTERN } from "@/lib/profile"
 
 export default function Register() {
   const router = useRouter()
+  const [username, setUsername] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
 
   const handleRegister = async () => {
+    if (!USERNAME_PATTERN.test(username)) {
+      alert("Username cần 3–30 ký tự: chữ thường, số, dấu _ hoặc -")
+      return
+    }
+
     setLoading(true)
+    const { data: taken } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("username", username)
+      .maybeSingle()
+    if (taken) {
+      alert("Username đã có người dùng, hãy chọn tên khác.")
+      setLoading(false)
+      return
+    }
+
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
+        // Profile sẽ được tạo từ username này ở lần đăng nhập đầu tiên
+        data: { username },
         // Tùy chọn: Chuyển hướng sau khi xác nhận email (nếu bật Auth confirm)
         emailRedirectTo: `${window.location.origin}/dashboard`,
       }
@@ -52,6 +72,16 @@ export default function Register() {
 
         {/* Form */}
         <div className="space-y-5">
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2 ml-1">Username</label>
+            <input
+              className="w-full bg-slate-800/50 border border-slate-700 text-white p-4 rounded-2xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder:text-slate-500"
+              placeholder="vd: thao_dev"
+              value={username}
+              onChange={(e) => setUsername(normalizeUsername(e.target.value))}
+            />
+            <p className="text-xs text-slate-500 mt-1 ml-1">Dùng cho link hồ sơ công khai: /u/{username || "username"}</p>
+          </div>
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-2 ml-1">Email</label>
             <input

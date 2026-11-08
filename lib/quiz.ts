@@ -1,12 +1,16 @@
-"use client"
-
-import { useState } from "react"
 import { supabase } from "@/lib/supabase"
-import { useRouter } from "next/navigation"
 
-type SkillType = "frontend" | "backend" | "ai" | "none"
+export type SkillType = "frontend" | "backend" | "ai" | "none"
+export type SkillKey = Exclude<SkillType, "none">
 
-const questions = [
+export type QuizScores = Record<SkillKey, number>
+
+export type QuizQuestion = {
+  question: string
+  options: { text: string; type: SkillType }[]
+}
+
+export const questions: QuizQuestion[] = [
 
   {
     question:"Bạn quen công nghệ frontend nào?",
@@ -160,117 +164,49 @@ const questions = [
 
 ]
 
-export default function Quiz(){
+/** Điểm tối đa mỗi nhóm = số câu hỏi thuộc nhóm đó */
+export const QUIZ_MAX: QuizScores = questions.reduce<QuizScores>(
+  (acc, q) => {
+    const types = new Set(q.options.map((o) => o.type))
+    for (const t of types) if (t !== "none") acc[t] += 1
+    return acc
+  },
+  { frontend: 0, backend: 0, ai: 0 }
+)
 
-  const router = useRouter()
+/** Đổi điểm thô (0..max) sang phần trăm (0..100) */
+export function toPercent(scores: QuizScores): QuizScores {
+  const pct = (k: SkillKey) =>
+    QUIZ_MAX[k] > 0 ? Math.min(100, Math.round((scores[k] / QUIZ_MAX[k]) * 100)) : 0
+  return { frontend: pct("frontend"), backend: pct("backend"), ai: pct("ai") }
+}
 
-  const [index,setIndex] = useState(0)
+/** Lấy kết quả quiz của user (không lỗi nếu chưa có hoặc có nhiều dòng) */
+export async function getQuizResult(userId: string): Promise<QuizScores | null> {
+  const { data, error } = await supabase
+    .from("quiz_results")
+    .select("frontend, backend, ai")
+    .eq("user_id", userId)
+    .limit(1)
+    .maybeSingle()
 
-  const [loading,setLoading] = useState(false)
-
-  const [scores,setScores] = useState({
-    frontend:0,
-    backend:0,
-    ai:0
-  })
-
-  const handleAnswer = async (type:SkillType)=>{
-
-    const newScore = {...scores}
-
-    if(type !== "none"){
-      newScore[type] += 1
-    }
-
-    setScores(newScore)
-
-    if(index < questions.length-1){
-      setIndex(index+1)
-    }else{
-
-      setLoading(true)
-
-      const { data } = await supabase.auth.getUser()
-
-      const user = data.user
-
-      if(!user){
-        alert("User not logged in")
-        return
-      }
-
-      await supabase.from("quiz_results").insert({
-
-        user_id:user.id,
-        frontend:newScore.frontend,
-        backend:newScore.backend,
-        ai:newScore.ai
-
-      })
-
-      alert("Quiz completed!")
-
-      router.push("/dashboard")
-
-    }
-
+  if (error) {
+    console.warn("Lỗi truy vấn quiz:", error.message)
+    return null
   }
+  return data
+}
 
-  const q = questions[index]
+/** Lưu kết quả quiz: xóa kết quả cũ rồi ghi kết quả mới (mỗi user 1 dòng) */
+export async function saveQuizResult(userId: string, scores: QuizScores) {
+  const { error: deleteError } = await supabase
+    .from("quiz_results")
+    .delete()
+    .eq("user_id", userId)
+  if (deleteError) return deleteError
 
-  const progress = Math.round((index/questions.length)*100)
-
-  return(
-
-    <div className="max-w-xl mx-auto p-10">
-
-      <h1 className="text-2xl font-bold">
-        Skill Assessment Quiz
-      </h1>
-
-      <p className="text-gray-500 mt-2">
-        Question {index+1} / {questions.length}
-      </p>
-
-      {/* progress bar */}
-
-      <div className="w-full bg-gray-200 h-3 rounded mt-4">
-
-        <div
-          className="bg-black h-3 rounded"
-          style={{width:`${progress}%`}}
-        />
-
-      </div>
-
-      <h2 className="mt-8 text-lg">
-        {q.question}
-      </h2>
-
-      <div className="mt-4 space-y-3">
-
-        {q.options.map((o,i)=>(
-
-          <button
-            key={i}
-            className="block border p-3 w-full text-left hover:bg-gray-100"
-            onClick={()=>handleAnswer(o.type as SkillType)}
-            disabled={loading}
-          >
-            {o.text}
-          </button>
-
-        ))}
-
-      </div>
-
-      {loading && (
-        <p className="mt-6 text-gray-500">
-          Saving result...
-        </p>
-      )}
-
-    </div>
-
-  )
+  const { error } = await supabase
+    .from("quiz_results")
+    .insert({ user_id: userId, ...scores })
+  return error
 }

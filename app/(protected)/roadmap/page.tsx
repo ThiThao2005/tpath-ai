@@ -22,7 +22,8 @@ export default function RoadmapPage() {
 
   // 1. Hàm Load Roadmap từ Database
   const loadProgress = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession()
+    const user = session?.user
     if (!user) return
 
     const { data, error } = await supabase
@@ -49,31 +50,28 @@ export default function RoadmapPage() {
   const generateRoadmap = async () => {
     try {
       setLoading(true)
-      const { data: userData } = await supabase.auth.getUser()
-      const user = userData.user
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData.session?.access_token
 
-      if (!user) {
+      if (!token) {
         alert("Vui lòng đăng nhập!")
         return
       }
 
-      // Lấy kết quả quiz để gửi cho AI (nếu có)
-      const { data: quizData } = await supabase
-        .from("quiz_results")
-        .select("*")
-        .eq("user_id", user.id)
-        .single()
+      if (
+        roadmapSteps.length > 0 &&
+        !confirm("Làm mới sẽ xóa lộ trình và tiến độ hiện tại. Tiếp tục?")
+      ) {
+        return
+      }
 
+      // Server tự xác định user từ access token, không gửi userId từ client
       const res = await fetch("/api/generate-roadmap", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId: user.id,
-          frontend: quizData?.frontend || 0,
-          backend: quizData?.backend || 0,
-          ai: quizData?.ai || 0
-        
-        })
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
       })
 
       if (!res.ok) throw new Error("API error")
