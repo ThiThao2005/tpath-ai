@@ -5,11 +5,15 @@ import { supabase } from "@/lib/supabase"
 import {
   LayoutDashboard, Plus, ExternalLink, BrainCircuit,
   Code2, Server, Bot, Layers, Trash2, Pencil, Check,
-  RefreshCw, Save, Calendar, ChevronDown
+  RefreshCw, Save, Calendar, ChevronDown, Briefcase
 } from "lucide-react"
 import toast from "react-hot-toast"
 import { getQuizResult, toPercent, type QuizScores } from "@/lib/quiz"
 import { splitGithub, isSafeUrl } from "@/lib/project"
+import {
+  EMPTY_DETAILS_FORM, PAIR_SEP, detailsToForm, formToDetails, parseDetails,
+  type DetailsForm, type InterviewDetails,
+} from "@/lib/interview"
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -21,6 +25,7 @@ type Project = {
   description: string
   link: string
   tag?: Tag
+  details?: unknown
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -39,23 +44,57 @@ const TAG_ICON: Record<Tag, React.ReactNode> = {
   fs: <Layers size={17} />,
 }
 
+type SaveFields = {
+  title: string
+  description: string
+  link: string
+  tag?: Tag
+  details?: InterviewDetails | null
+}
+
 /**
- * Nếu database chưa có cột `tag` (chưa chạy supabase/rls.sql),
- * thử lại không kèm `tag` để việc lưu dự án vẫn thành công.
+ * Nếu database chưa có cột `tag` / `details` (chưa chạy supabase/rls.sql hoặc
+ * supabase/interview_projects.sql), bỏ cột đó rồi thử lại để việc lưu dự án vẫn thành công.
  */
-async function withoutTagFallback<T extends { tag?: Tag }>(
-  fields: T,
-  run: (f: Partial<T>) => PromiseLike<{ error: { code?: string; message: string } | null }>
+async function withMissingColumnFallback(
+  fields: SaveFields,
+  run: (f: Partial<SaveFields>) => PromiseLike<{ error: { code?: string; message: string } | null }>
 ) {
-  const res = await run(fields)
-  if (res.error && /'tag' column/.test(res.error.message)) {
-    console.warn("Bảng portfolio_projects chưa có cột tag — hãy chạy supabase/rls.sql")
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { tag: _omit, ...rest } = fields
-    return run(rest as Partial<T>)
+  let current: Partial<SaveFields> = fields
+  let res = await run(current)
+  for (const col of ["tag", "details"] as const) {
+    if (res.error && new RegExp(`'${col}' column`).test(res.error.message)) {
+      console.warn(`Bảng portfolio_projects chưa có cột ${col} — hãy chạy file SQL trong thư mục supabase/`)
+      if (col === "details" && fields.details) toast("Chưa lưu được thông tin phỏng vấn: database thiếu cột details.", { icon: "⚠️" })
+      const rest = { ...current }
+      delete rest[col]
+      current = rest
+      res = await run(current)
+    }
   }
   return res
 }
+
+const DETAIL_FIELDS: {
+  key: keyof DetailsForm; label: string; placeholder: string; rows?: number; full?: boolean
+}[] = [
+  { key: "pitch", label: "Giới thiệu trong 30 giây", rows: 2, full: true,
+    placeholder: "Dự án giải quyết vấn đề gì, cho ai, điểm nổi bật nhất là gì?" },
+  { key: "role", label: "Vai trò", placeholder: "VD: Làm cá nhân – Fullstack" },
+  { key: "period", label: "Thời gian", placeholder: "VD: 09/2026 – 11/2026" },
+  { key: "stack", label: "Công nghệ (phân cách bằng dấu phẩy)", full: true,
+    placeholder: "Next.js, TypeScript, Supabase, Tailwind CSS" },
+  { key: "context", label: "Bối cảnh & mục tiêu", rows: 2, full: true,
+    placeholder: "Trước khi có dự án, người dùng gặp khó khăn gì? Mục tiêu đặt ra là gì?" },
+  { key: "actions", label: "Mình đã làm gì (mỗi dòng 1 ý)", rows: 4, full: true,
+    placeholder: "Thiết kế database 5 bảng\nViết API đặt hàng\nLàm trang admin" },
+  { key: "challenges", label: `Khó khăn & cách giải quyết (mỗi dòng: Vấn đề ${PAIR_SEP} Cách giải quyết)`, rows: 3, full: true,
+    placeholder: `Khách sửa được giá trong request ${PAIR_SEP} Tính lại giá từ database ở phía server` },
+  { key: "results", label: "Kết quả (mỗi dòng 1 ý)", rows: 3, full: true,
+    placeholder: "Deploy trên Vercel\nCó 20 trang, 30 API" },
+  { key: "questions", label: `Câu hỏi phỏng vấn có thể gặp (mỗi dòng: Câu hỏi ${PAIR_SEP} Gợi ý trả lời) – chỉ mình bạn thấy`, rows: 3, full: true,
+    placeholder: `Vì sao chọn Supabase? ${PAIR_SEP} Có sẵn Auth và PostgreSQL, phân quyền bằng RLS` },
+]
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -106,6 +145,8 @@ export default function Dashboard() {
   const [tag,      setTag]          = useState<Tag>("fe")
   const [editId,   setEditId]       = useState<string | null>(null)
   const [saving,   setSaving]       = useState(false)
+  const [dForm,    setDForm]        = useState<DetailsForm>(EMPTY_DETAILS_FORM)
+  const [showDetails, setShowDetails] = useState(false)
 
   // ── Load data ──────────────────────────────────────────────────────────────
 
@@ -152,11 +193,14 @@ export default function Dashboard() {
       return
     }
 
-    const fields = { title: title.trim(), description: desc.trim(), link: link.trim(), tag }
+    const fields: SaveFields = {
+      title: title.trim(), description: desc.trim(), link: link.trim(), tag,
+      details: formToDetails(dForm),
+    }
 
     if (editId) {
       // Update
-      const { error } = await withoutTagFallback(fields, (f) =>
+      const { error } = await withMissingColumnFallback(fields, (f) =>
         supabase.from("portfolio_projects").update(f).eq("id", editId)
       )
 
@@ -169,7 +213,7 @@ export default function Dashboard() {
     } else {
       // Insert
       const uid = sessionUser.id
-      const { error } = await withoutTagFallback(fields, (f) =>
+      const { error } = await withMissingColumnFallback(fields, (f) =>
         supabase.from("portfolio_projects").insert({ user_id: uid, ...f })
       )
 
@@ -190,6 +234,9 @@ export default function Dashboard() {
     setDesc(p.description || "")
     setLink(p.link)
     setTag((p.tag as Tag) || "fe")
+    const d = parseDetails(p.details)
+    setDForm(detailsToForm(d))
+    setShowDetails(!!d)
     window.scrollTo({ top: 0, behavior: "smooth" })
   }
 
@@ -199,6 +246,8 @@ export default function Dashboard() {
     setDesc("")
     setLink("")
     setTag("fe")
+    setDForm(EMPTY_DETAILS_FORM)
+    setShowDetails(false)
   }
 
   // ── Delete project ─────────────────────────────────────────────────────────
@@ -345,6 +394,48 @@ export default function Dashboard() {
                   <option value="ai">AI / Data</option>
                   <option value="fs">Fullstack</option>
                 </select>
+
+                {/* Thông tin phỏng vấn (STAR) */}
+                <div className="md:col-span-2 border border-slate-200 dark:border-slate-700 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setShowDetails(v => !v)}
+                    aria-expanded={showDetails}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-left text-slate-700 dark:text-slate-200"
+                  >
+                    <Briefcase size={15} className="text-blue-500 flex-shrink-0" />
+                    <span>
+                      Thông tin phỏng vấn (STAR)
+                      <span className="text-xs text-slate-400"> – hiển thị ở Portfolio & hồ sơ công khai</span>
+                    </span>
+                    <ChevronDown size={15} className={`ml-auto flex-shrink-0 text-slate-400 transition-transform ${showDetails ? "rotate-180" : ""}`} />
+                  </button>
+                  {showDetails && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 px-3 pb-3">
+                      {DETAIL_FIELDS.map(f => (
+                        <label key={f.key} className={`block space-y-1 ${f.full ? "md:col-span-2" : ""}`}>
+                          <span className="text-xs text-slate-500">{f.label}</span>
+                          {f.rows ? (
+                            <textarea
+                              rows={f.rows}
+                              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 rounded-xl text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500 outline-none resize-y"
+                              placeholder={f.placeholder}
+                              value={dForm[f.key]}
+                              onChange={e => setDForm(prev => ({ ...prev, [f.key]: e.target.value }))}
+                            />
+                          ) : (
+                            <input
+                              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 rounded-xl text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500 outline-none"
+                              placeholder={f.placeholder}
+                              value={dForm[f.key]}
+                              onChange={e => setDForm(prev => ({ ...prev, [f.key]: e.target.value }))}
+                            />
+                          )}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
                 <div className="md:col-span-2 flex gap-2">
                   <button

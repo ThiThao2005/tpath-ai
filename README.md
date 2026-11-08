@@ -14,8 +14,8 @@ Trợ lý lộ trình IT: làm **quiz đánh giá kỹ năng**, nhận **lộ tr
 | `/dashboard` | Chỉ số kỹ năng (%), thêm/sửa/xóa/lọc dự án portfolio | ✅ |
 | `/roadmap` | Tạo lộ trình học, đánh dấu hoàn thành, theo dõi tiến độ | ✅ |
 | `/projects` | Gemini gợi ý 5 dự án theo kết quả quiz | ✅ |
-| `/portfolio` | Xem / xóa dự án đã lưu | ✅ |
-| `/u/[username]` | Hồ sơ công khai: username + danh sách dự án | – |
+| `/portfolio` | Hồ sơ dự án kiểu phỏng vấn (STAR): thống kê, bảng tóm tắt, câu hỏi phỏng vấn, in / lưu PDF | ✅ |
+| `/u/[username]` | Hồ sơ công khai: thống kê + dự án theo khung STAR (ẩn phần câu hỏi phỏng vấn) | – |
 
 **Luồng sử dụng:** Đăng ký → Làm Quiz → Xem Dashboard → Tạo Roadmap → Nhận gợi ý dự án → Thêm dự án vào Portfolio → Chia sẻ link `/u/<username>`.
 
@@ -40,9 +40,11 @@ Cần các bảng:
 - `profiles (id uuid = auth.users.id, username text unique)`
 - `quiz_results (user_id uuid, frontend int, backend int, ai int)`
 - `roadmap_progress (id, user_id uuid, skill text, step text, completed bool, created_at)`
-- `portfolio_projects (id, user_id uuid, title text, description text, link text, tag text, created_at)`
+- `portfolio_projects (id, user_id uuid, title text, description text, link text, tag text, details jsonb, created_at)`
 
 Sau đó mở **SQL Editor** và chạy [`supabase/rls.sql`](supabase/rls.sql) để bật Row Level Security (mỗi người chỉ đọc/ghi được dữ liệu của mình; `profiles` và `portfolio_projects` thì ai cũng đọc được để trang hồ sơ công khai hoạt động).
+
+Để lưu thông tin phỏng vấn (STAR) cho dự án, chạy thêm [`supabase/interview_projects.sql`](supabase/interview_projects.sql) (thêm cột `details jsonb`; phần dưới của file điền sẵn nội dung cho các dự án mẫu).
 
 Nếu dùng đăng nhập Google: thêm URL của site (ví dụ `http://localhost:3000/**` và domain khi deploy) vào **Authentication → URL Configuration → Redirect URLs**.
 
